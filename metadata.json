@@ -1,0 +1,8 @@
+{
+  "name": "Innovista 2026 Reel Shoot Challenge",
+  "description": "Official competition website for the Innovista 2026 Reel Shoot Challenge at Graphic Era Hill University (GEHU), Haldwani.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
