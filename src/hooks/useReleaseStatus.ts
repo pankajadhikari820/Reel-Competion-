@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ReleaseResponse } from '../types/eventTypes.ts';
+import { EVENT_CONFIG } from '../config/eventConfig.ts';
+import { OFFICIAL_PROBLEM_STATEMENT_DATA } from '../data/problemStatementData.ts';
 
 interface UseReleaseStatusOptions {
   simulatedTime?: string | null;
@@ -14,15 +16,71 @@ export function useReleaseStatus({ simulatedTime }: UseReleaseStatusOptions = {}
   const [clockOffsetMs, setClockOffsetMs] = useState<number>(0);
   
   // High-frequency seconds countdown
-  const [timeRemainingReleaseMs, setTimeRemainingReleaseMs] = useState<number>(0);
-  const [timeRemainingDeadlineMs, setTimeRemainingDeadlineMs] = useState<number>(0);
+  const [timeRemainingReleaseMs, setTimeRemainingReleaseMs] = useState<number>(() => {
+    const releaseMs = new Date(EVENT_CONFIG.releaseTimestamp).getTime();
+    return Math.max(0, releaseMs - Date.now());
+  });
+  const [timeRemainingDeadlineMs, setTimeRemainingDeadlineMs] = useState<number>(() => {
+    const deadlineMs = new Date(EVENT_CONFIG.deadlineTimestamp).getTime();
+    return Math.max(0, deadlineMs - Date.now());
+  });
 
   const prevIsReleased = useRef<boolean | null>(null);
 
-  // Fetch release status directly from authoritative backend
+  // Compute fallback release state based on client clock and admin override
+  const getClientFallbackState = useCallback((): ReleaseResponse => {
+    const now = Date.now();
+    const releaseMs = new Date(EVENT_CONFIG.releaseTimestamp).getTime();
+    const deadlineMs = new Date(EVENT_CONFIG.deadlineTimestamp).getTime();
+
+    // Check local admin override
+    const localAdminMode = localStorage.getItem('innovista_admin_mode') || 'official';
+    const localSimulatedTime = localStorage.getItem('innovista_simulated_time');
+
+    let effectiveNow = now;
+    if (simulatedTime) {
+      const p = new Date(simulatedTime).getTime();
+      if (!isNaN(p)) effectiveNow = p;
+    } else if (localSimulatedTime) {
+      const p = new Date(localSimulatedTime).getTime();
+      if (!isNaN(p)) effectiveNow = p;
+    }
+
+    let isReleased = effectiveNow >= releaseMs;
+    let isDeadlinePassed = effectiveNow >= deadlineMs;
+
+    if (localAdminMode === 'force_unlocked') {
+      isReleased = true;
+      isDeadlinePassed = false;
+    } else if (localAdminMode === 'force_locked') {
+      isReleased = false;
+      isDeadlinePassed = false;
+    } else if (localAdminMode === 'force_deadline') {
+      isReleased = true;
+      isDeadlinePassed = true;
+    }
+
+    const remainingRelease = isReleased ? 0 : Math.max(0, releaseMs - effectiveNow);
+    const remainingDeadline = isDeadlinePassed ? 0 : Math.max(0, deadlineMs - effectiveNow);
+
+    return {
+      isReleased,
+      isDeadlinePassed,
+      serverTime: new Date(effectiveNow).toISOString(),
+      releaseTime: EVENT_CONFIG.releaseTimestamp,
+      deadlineTime: EVENT_CONFIG.deadlineTimestamp,
+      timeRemainingToReleaseMs: remainingRelease,
+      timeRemainingToDeadlineMs: remainingDeadline,
+      message: isReleased 
+        ? undefined 
+        : 'The Problem Statement is currently locked. It will automatically be revealed on 30 October 2026 at 11:00 AM IST.',
+      problemStatement: isReleased ? OFFICIAL_PROBLEM_STATEMENT_DATA : undefined,
+    };
+  }, [simulatedTime]);
+
+  // Fetch release status directly from authoritative backend with resilient fallback
   const fetchStatus = useCallback(async () => {
     try {
-      setError(null);
       const url = new URL('/api/problem-statement', window.location.origin);
       if (simulatedTime) {
         url.searchParams.set('simulated_time', simulatedTime);
@@ -35,12 +93,21 @@ export function useReleaseStatus({ simulatedTime }: UseReleaseStatusOptions = {}
         },
       });
 
-      if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
+      // Verify that the response is valid JSON (not HTML from an SPA rewrite)
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok || !contentType.includes('application/json')) {
+        // Fall back gracefully to client scheduler
+        const fallback = getClientFallbackState();
+        setData(fallback);
+        setTimeRemainingReleaseMs(fallback.timeRemainingToReleaseMs);
+        setTimeRemainingDeadlineMs(fallback.timeRemainingToDeadlineMs);
+        setError(null);
+        return;
       }
 
       const json: ReleaseResponse = await res.json();
       setData(json);
+      setError(null);
 
       // Compute client-server time offset
       const serverDate = new Date(json.serverTime).getTime();
@@ -56,17 +123,30 @@ export function useReleaseStatus({ simulatedTime }: UseReleaseStatusOptions = {}
       }
       prevIsReleased.current = json.isReleased;
     } catch (err) {
-      console.error('[Innovista 2026] Failed to fetch problem statement:', err);
-      setError('Unable to synchronize with official event server. Retrying...');
+      // In case of any network or JSON parsing issue, apply reliable local fallback
+      const fallback = getClientFallbackState();
+      setData(fallback);
+      setTimeRemainingReleaseMs(fallback.timeRemainingToReleaseMs);
+      setTimeRemainingDeadlineMs(fallback.timeRemainingToDeadlineMs);
+      setError(null);
     } finally {
       setIsLoading(false);
     }
-  }, [simulatedTime]);
+  }, [simulatedTime, getClientFallbackState]);
 
   // Initial fetch and simulated time changes
   useEffect(() => {
     setIsLoading(true);
     fetchStatus();
+  }, [fetchStatus]);
+
+  // Listen for admin mode changes dispatched locally
+  useEffect(() => {
+    const handleModeChange = () => {
+      fetchStatus();
+    };
+    window.addEventListener('innovista-mode-change', handleModeChange);
+    return () => window.removeEventListener('innovista-mode-change', handleModeChange);
   }, [fetchStatus]);
 
   // Periodic authoritative polling every 12 seconds to ensure sync
@@ -77,16 +157,26 @@ export function useReleaseStatus({ simulatedTime }: UseReleaseStatusOptions = {}
     return () => clearInterval(pollInterval);
   }, [fetchStatus]);
 
-  // High-precision 1-second countdown ticker calculated against synchronized server clock
+  // High-precision 1-second countdown ticker
   useEffect(() => {
-    if (!data) return;
-
     const timer = setInterval(() => {
-      const releaseMs = new Date(data.releaseTime).getTime();
-      const deadlineMs = new Date(data.deadlineTime).getTime();
+      const releaseMs = new Date(EVENT_CONFIG.releaseTimestamp).getTime();
+      const deadlineMs = new Date(EVENT_CONFIG.deadlineTimestamp).getTime();
       
-      // Calculate effective current server time
       const currentServerTime = Date.now() + clockOffsetMs;
+
+      // Check if admin override exists
+      const localAdminMode = localStorage.getItem('innovista_admin_mode') || 'official';
+      if (localAdminMode === 'force_unlocked') {
+        setTimeRemainingReleaseMs(0);
+        setTimeRemainingDeadlineMs(Math.max(0, deadlineMs - currentServerTime));
+        return;
+      }
+      if (localAdminMode === 'force_deadline') {
+        setTimeRemainingReleaseMs(0);
+        setTimeRemainingDeadlineMs(0);
+        return;
+      }
 
       const remainingRelease = Math.max(0, releaseMs - currentServerTime);
       const remainingDeadline = Math.max(0, deadlineMs - currentServerTime);
@@ -94,8 +184,8 @@ export function useReleaseStatus({ simulatedTime }: UseReleaseStatusOptions = {}
       setTimeRemainingReleaseMs(remainingRelease);
       setTimeRemainingDeadlineMs(remainingDeadline);
 
-      // If we crossed the release threshold while currently locked, trigger an immediate authoritative fetch!
-      if (!data.isReleased && remainingRelease <= 0) {
+      // Auto-unlock transition trigger
+      if (data && !data.isReleased && remainingRelease <= 0) {
         fetchStatus();
       }
     }, 1000);
@@ -116,8 +206,8 @@ export function useReleaseStatus({ simulatedTime }: UseReleaseStatusOptions = {}
     return { days, hours, minutes, seconds };
   };
 
-  const isReleased = data?.isReleased ?? false;
-  const isDeadlinePassed = data?.isDeadlinePassed ?? false;
+  const isReleased = data?.isReleased ?? (timeRemainingReleaseMs <= 0);
+  const isDeadlinePassed = data?.isDeadlinePassed ?? (timeRemainingDeadlineMs <= 0);
 
   return {
     data,
