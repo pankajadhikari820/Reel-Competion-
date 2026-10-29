@@ -18,6 +18,8 @@ import { ContactSection } from './components/ContactSection.tsx';
 import { Footer } from './components/Footer.tsx';
 import { AdminPortal } from './components/AdminPortal.tsx';
 
+import { OFFICIAL_PROBLEM_STATEMENT_DATA } from './data/problemStatementData.ts';
+
 export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
 
@@ -49,7 +51,7 @@ export default function App() {
         <ProblemStatementSection
           isReleased={isReleased}
           isDeadlinePassed={isDeadlinePassed}
-          problemStatement={data?.problemStatement}
+          problemStatement={data?.problemStatement || (isReleased ? OFFICIAL_PROBLEM_STATEMENT_DATA : undefined)}
           isLoading={isLoading}
           error={error}
           releaseCountdown={releaseCountdown}

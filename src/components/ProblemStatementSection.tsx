@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Lock, Unlock, Copy, Check, Sparkles, RefreshCw, AlertCircle, Film, Compass, ChevronRight } from 'lucide-react';
 import { ProblemStatementContent } from '../types/eventTypes.ts';
+import { OFFICIAL_PROBLEM_STATEMENT_DATA } from '../data/problemStatementData.ts';
 
 interface CountdownParts {
   days: number;
@@ -31,25 +32,26 @@ export function ProblemStatementSection({
   onRefresh,
 }: ProblemStatementSectionProps) {
   const [copied, setCopied] = useState(false);
+  const activeStatement = problemStatement || (isReleased ? OFFICIAL_PROBLEM_STATEMENT_DATA : undefined);
 
   const handleCopy = () => {
-    if (!problemStatement) return;
+    if (!activeStatement) return;
 
     const textToCopy = `
-${problemStatement.title}
-${problemStatement.subtitle}
-Theme: ${problemStatement.theme}
+${activeStatement.title}
+${activeStatement.subtitle}
+Theme: ${activeStatement.theme}
 
-${problemStatement.description.join('\n\n')}
+${activeStatement.description.join('\n\n')}
 
 CREATIVE APPROACHES:
-${problemStatement.creativeApproaches.map((a) => `${a.id}. ${a.title}\n${a.description}`).join('\n\n')}
+${activeStatement.creativeApproaches.map((a) => `${a.id}. ${a.title}\n${a.description}`).join('\n\n')}
 
 NOTE:
-${problemStatement.note}
+${activeStatement.note}
 
 YOUR MISSION:
-"${problemStatement.mission}"
+"${activeStatement.mission}"
     `.trim();
 
     navigator.clipboard.writeText(textToCopy).then(() => {
@@ -208,7 +210,7 @@ YOUR MISSION:
             </div>
           ) : (
             /* POST-RELEASE OFFICIAL PROBLEM STATEMENT */
-            problemStatement && (
+            activeStatement && (
               <div className="rounded-2xl border border-neutral-200 bg-white p-6 sm:p-12 shadow-xs transition-all animate-in fade-in duration-500">
                 
                 {/* Header Row with Copy Action */}
@@ -218,10 +220,10 @@ YOUR MISSION:
                       OFFICIAL BRIEFING DOCUMENT
                     </div>
                     <h3 className="mt-1 text-2xl sm:text-3xl font-extrabold text-neutral-950">
-                      {problemStatement.title}
+                      {activeStatement.title}
                     </h3>
                     <div className="mt-1.5 text-base sm:text-lg font-semibold text-neutral-700">
-                      {problemStatement.subtitle}
+                      {activeStatement.subtitle}
                     </div>
                   </div>
 
@@ -249,13 +251,13 @@ YOUR MISSION:
                     COMPETITION THEME:
                   </span>
                   <span className="text-sm font-bold text-blue-950">
-                    {problemStatement.theme}
+                    {activeStatement.theme}
                   </span>
                 </div>
 
                 {/* Description Paragraphs */}
                 <div className="space-y-4 text-base sm:text-lg text-neutral-700 leading-relaxed">
-                  {problemStatement.description.map((paragraph, idx) => (
+                  {activeStatement.description.map((paragraph, idx) => (
                     <p key={idx}>{paragraph}</p>
                   ))}
                 </div>
@@ -270,7 +272,7 @@ YOUR MISSION:
                   </div>
 
                   <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {problemStatement.creativeApproaches.map((approach) => (
+                    {activeStatement.creativeApproaches.map((approach) => (
                       <div
                         key={approach.id}
                         className="group flex flex-col justify-between rounded-xl border border-neutral-200/90 bg-neutral-50/40 p-5 transition-all hover:bg-white hover:border-neutral-300 hover:shadow-xs"
@@ -294,7 +296,7 @@ YOUR MISSION:
                 {/* Official Note */}
                 <div className="mt-10 rounded-xl border border-neutral-200 bg-neutral-50 p-5 text-sm text-neutral-700">
                   <span className="font-semibold text-neutral-900 block mb-1">Important Note:</span>
-                  <p>{problemStatement.note}</p>
+                  <p>{activeStatement.note}</p>
                 </div>
 
                 {/* Mission Statement Box */}
@@ -304,7 +306,7 @@ YOUR MISSION:
                     <span>YOUR MISSION</span>
                   </div>
                   <blockquote className="mt-3 text-lg sm:text-xl font-medium italic text-neutral-100 leading-relaxed">
-                    "{problemStatement.mission}"
+                    "{activeStatement.mission}"
                   </blockquote>
                 </div>
 

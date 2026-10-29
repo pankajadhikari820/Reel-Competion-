@@ -170,11 +170,35 @@ export function useReleaseStatus({ simulatedTime }: UseReleaseStatusOptions = {}
       if (localAdminMode === 'force_unlocked') {
         setTimeRemainingReleaseMs(0);
         setTimeRemainingDeadlineMs(Math.max(0, deadlineMs - currentServerTime));
+        setData((prev) => {
+          if (!prev?.isReleased) {
+            return {
+              ...(prev || getClientFallbackState()),
+              isReleased: true,
+              problemStatement: prev?.problemStatement || OFFICIAL_PROBLEM_STATEMENT_DATA,
+              timeRemainingToReleaseMs: 0,
+            };
+          }
+          return prev;
+        });
         return;
       }
       if (localAdminMode === 'force_deadline') {
         setTimeRemainingReleaseMs(0);
         setTimeRemainingDeadlineMs(0);
+        setData((prev) => {
+          if (!prev?.isDeadlinePassed) {
+            return {
+              ...(prev || getClientFallbackState()),
+              isReleased: true,
+              isDeadlinePassed: true,
+              problemStatement: prev?.problemStatement || OFFICIAL_PROBLEM_STATEMENT_DATA,
+              timeRemainingToReleaseMs: 0,
+              timeRemainingToDeadlineMs: 0,
+            };
+          }
+          return prev;
+        });
         return;
       }
 
@@ -184,14 +208,27 @@ export function useReleaseStatus({ simulatedTime }: UseReleaseStatusOptions = {}
       setTimeRemainingReleaseMs(remainingRelease);
       setTimeRemainingDeadlineMs(remainingDeadline);
 
-      // Auto-unlock transition trigger
-      if (data && !data.isReleased && remainingRelease <= 0) {
-        fetchStatus();
+      // Auto-unlock transition trigger when timer ends
+      if (remainingRelease <= 0) {
+        setData((prev) => {
+          if (!prev?.isReleased) {
+            return {
+              ...(prev || getClientFallbackState()),
+              isReleased: true,
+              problemStatement: prev?.problemStatement || OFFICIAL_PROBLEM_STATEMENT_DATA,
+              timeRemainingToReleaseMs: 0,
+            };
+          }
+          return prev;
+        });
+        if (data && !data.isReleased) {
+          fetchStatus();
+        }
       }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [data, clockOffsetMs, fetchStatus]);
+  }, [data, clockOffsetMs, fetchStatus, getClientFallbackState]);
 
   // Convert milliseconds into days, hours, minutes, seconds breakdown
   const formatTimeParts = (ms: number) => {
